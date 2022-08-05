@@ -296,12 +296,19 @@ impl<'a> Iterator for AssemblerIter<'a> {
         let mut data_range = None;
         while data_range.is_none() && self.index < self.assembler.contigs.len() {
             let contig = self.assembler.contigs[self.index];
-            self.left += contig.hole_size;
-            self.right = self.left + contig.data_size;
+            self.left = self.left.saturating_add(contig.hole_size);
+            self.right = self.left.saturating_add(contig.data_size);
+
             data_range = if self.left < self.right {
-                let data_range = (self.left + self.offset, self.right + self.offset);
-                self.left = self.right;
-                Some(data_range)
+                let left = self.left.saturating_add(self.offset);
+                let right = self.right.saturating_add(self.offset);
+
+                if left < right {
+                    self.left = self.right;
+                    Some((left, right))
+                } else {
+                    None
+                }
             } else {
                 None
             };
