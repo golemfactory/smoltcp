@@ -6,7 +6,7 @@ authors = ["whitequark <whitequark@whitequark.org>", "Golem Factory <contact@gol
 description = "Golem Network fork of smoltcp"
 homepage = "https://github.com/golemfactory/smoltcp"
 repository = "https://github.com/golemfactory/smoltcp"
-keywords = ["ip", "tcp", "udp", "ethernet", "network", "golem"]
+keywords = ["ip", "tcp", "udp", "ethernet", "network"]
 categories = ["embedded", "network-programming"]
 license = "0BSD"
 # Each example should have an explicit `[[example]]` section here to
