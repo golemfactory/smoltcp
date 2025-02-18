@@ -1327,6 +1327,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
         if self.state == State::Closed {
+            log::trace!("accepts: self.state == State::Closed => false");
             return false;
         }
 
@@ -1334,10 +1335,14 @@ impl<'a> Socket<'a> {
         // be destined to this socket, but another one may well listen on the same
         // local endpoint.
         if self.state == State::Listen && repr.ack_number.is_some() {
+            log::trace!(
+                "accepts: self.state == State::Listen && repr.ack_number.is_some() => false"
+            );
             return false;
         }
 
         if let Some(tuple) = &self.tuple {
+            log::trace!("accepts: {:?} == {:?} => true", ip_repr, tuple);
             // Reject packets not matching the 4-tuple
             ip_repr.dst_addr() == tuple.local.addr
                 && repr.dst_port == tuple.local.port
@@ -1349,6 +1354,7 @@ impl<'a> Socket<'a> {
                 Some(addr) => ip_repr.dst_addr() == addr,
                 None => true,
             };
+            log::trace!("accepts: addr_ok ({}) && repr.dst_port ({}) != 0 && repr.dst_port == self.listen_endpoint.port ({}) => true", addr_ok, repr.dst_port, self.listen_endpoint.port);
             addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port
         }
     }
@@ -1868,7 +1874,10 @@ impl<'a> Socket<'a> {
         let assembler_was_empty = self.assembler.is_empty();
 
         // Try adding payload octets to the assembler.
-        let Ok(contig_len) = self.assembler.add_then_remove_front(payload_offset, payload_len) else {
+        let Ok(contig_len) = self
+            .assembler
+            .add_then_remove_front(payload_offset, payload_len)
+        else {
             net_debug!(
                 "assembler: too many holes to add {} octets at offset {}",
                 payload_len,
