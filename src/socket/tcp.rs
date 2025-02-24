@@ -1327,7 +1327,7 @@ impl<'a> Socket<'a> {
 
     pub(crate) fn accepts(&self, _cx: &mut Context, ip_repr: &IpRepr, repr: &TcpRepr) -> bool {
         if self.state == State::Closed {
-            log::trace!("accepts: self.state == State::Closed => false");
+            log::trace!("accepts: rejected because self.state == State::Closed");
             return false;
         }
 
@@ -1336,26 +1336,88 @@ impl<'a> Socket<'a> {
         // local endpoint.
         if self.state == State::Listen && repr.ack_number.is_some() {
             log::trace!(
-                "accepts: self.state == State::Listen && repr.ack_number.is_some() => false"
+                "accepts: rejected because self.state == State::Listen and repr.ack_number is {:?} (should be None)", repr.ack_number
             );
             return false;
         }
 
         if let Some(tuple) = &self.tuple {
-            log::trace!("accepts: {:?} == {:?} => true", ip_repr, tuple);
+            let reject_dst_addr = (ip_repr.dst_addr() != tuple.local.addr).then(|| {
+                format!(
+                    "dst address [{}] != {}",
+                    ip_repr.dst_addr(),
+                    tuple.local.addr
+                )
+            });
+            let reject_dst_port = (repr.dst_port != tuple.local.port)
+                .then(|| format!("dst port [{}] != {}", repr.dst_port, tuple.local.port));
+            let reject_src_addr = (ip_repr.src_addr() == tuple.remote.addr).then(|| {
+                format!(
+                    "src address [{}] != {}",
+                    ip_repr.src_addr(),
+                    tuple.remote.addr
+                )
+            });
+            let reject_src_port = (repr.src_port != tuple.remote.port)
+                .then(|| format!("src port [{}] != {}", repr.src_port, tuple.remote.port));
+
             // Reject packets not matching the 4-tuple
-            ip_repr.dst_addr() == tuple.local.addr
+            let accept = ip_repr.dst_addr() == tuple.local.addr
                 && repr.dst_port == tuple.local.port
                 && ip_repr.src_addr() == tuple.remote.addr
-                && repr.src_port == tuple.remote.port
+                && repr.src_port == tuple.remote.port;
+
+            if !accept {
+                let msgs = reject_dst_addr
+                    .into_iter()
+                    .chain(reject_dst_port.into_iter())
+                    .chain(reject_src_addr.into_iter())
+                    .chain(reject_src_port.into_iter())
+                    .collect::<Vec<_>>();
+                let msg = msgs.join(" && ");
+                log::trace!("accepts: rejected because {msg}");
+            }
+
+            accept
         } else {
             // We're listening, reject packets not matching the listen endpoint.
             let addr_ok = match self.listen_endpoint.addr {
                 Some(addr) => ip_repr.dst_addr() == addr,
                 None => true,
             };
-            log::trace!("accepts: addr_ok ({}) && repr.dst_port ({}) != 0 && repr.dst_port == self.listen_endpoint.port ({}) => true", addr_ok, repr.dst_port, self.listen_endpoint.port);
-            addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port
+
+            let reject_addr_ok = (!addr_ok).then(|| {
+                format!(
+                    "addr_ok = false (listen addr is {}, dst addr is {})",
+                    self.listen_endpoint
+                        .addr
+                        .map(|addr| addr.to_string())
+                        .unwrap_or_else(|| String::from("<none>")),
+                    ip_repr.dst_addr()
+                )
+            });
+            let reject_dst_port =
+                (repr.dst_port == 0).then(|| format!("dst port [{}] == 0", repr.dst_port));
+            let reject_dst_port2 = (repr.dst_port != self.listen_endpoint.port).then(|| {
+                format!(
+                    "dst port [{}] != {}",
+                    repr.dst_port, self.listen_endpoint.port
+                )
+            });
+
+            let accept =
+                addr_ok && repr.dst_port != 0 && repr.dst_port == self.listen_endpoint.port;
+            if !accept {
+                let msgs = reject_addr_ok
+                    .into_iter()
+                    .chain(reject_dst_port.into_iter())
+                    .chain(reject_dst_port2.into_iter())
+                    .collect::<Vec<_>>();
+                let msg = msgs.join(" && ");
+                log::trace!("accepts: rejected because {msg}");
+            }
+
+            accept
         }
     }
 
